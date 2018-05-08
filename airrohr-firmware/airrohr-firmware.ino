@@ -69,7 +69,7 @@
 /*                                                               *
 /*****************************************************************/
 // increment on change
-#define SOFTWARE_VERSION "NRZ-2017-100"
+#define SOFTWARE_VERSION "AQA-2018-001"
 
 /*****************************************************************
 /* Includes                                                      *
@@ -102,6 +102,7 @@
 #include <DallasTemperature.h>
 #include <TinyGPS++.h>
 #include <Ticker.h>
+#include <Adafruit_ADS1015.h>       // ADS1115 Digital Analog Wandler
 
 #if defined(INTL_BG)
 #include "intl_bg.h"
@@ -162,6 +163,7 @@ bool auto_update = 0;
 bool has_display = 0;
 bool has_lcd1602 = 0;
 bool has_lcd1602_27 = 0;
+bool has_ph_sen0161 = 0;
 int  debug = 3;
 
 long int sample_count = 0;
@@ -228,6 +230,12 @@ SoftwareSerial serialGPS(GPS_PIN_RX, GPS_PIN_TX, false, 128);
 #if defined(ARDUINO_SAMD_ZERO)
 #define serialSDS SERIAL_PORT_HARDWARE
 #endif
+
+/*****************************************************************
+/* ADS1115 declaration                                           *
+/*****************************************************************/
+Adafruit_ADS1115 ads(0x48);         // ADS1115 Digital Analog Wandler
+
 /*****************************************************************
 /* DHT declaration                                               *
 /*****************************************************************/
@@ -662,6 +670,7 @@ void copyExtDef() {
 	setDef(has_display, HAS_DISPLAY);
 	setDef(has_lcd1602, HAS_LCD1602);
 	setDef(has_lcd1602_27, HAS_LCD1602_27);
+	setDef(has_ph_sen0161, HAS_PH_SEN0161);
 
 	setDef(debug, DEBUG);
 
@@ -745,6 +754,7 @@ void readConfig() {
 					setFromJSON(has_display);
 					setFromJSON(has_lcd1602);
 					setFromJSON(has_lcd1602_27);
+					setFromJSON(has_ph_sen0161);
 					setFromJSON(debug);
 					setFromJSON(sending_intervall_ms);
 					setFromJSON(time_for_wifi_config);
@@ -815,6 +825,7 @@ void writeConfig() {
 	copyToJSON_Bool(has_display);
 	copyToJSON_Bool(has_lcd1602);
 	copyToJSON_Bool(has_lcd1602_27);
+	copyToJSON_Bool(has_ph_sen0161);
 	copyToJSON_String(debug);
 	copyToJSON_String(sending_intervall_ms);
 	copyToJSON_String(time_for_wifi_config);
@@ -1120,6 +1131,7 @@ void webserver_config() {
 		page_content += form_checkbox("auto_update", FPSTR(INTL_AUTO_UPDATE), auto_update);
 		page_content += form_checkbox("has_display", FPSTR(INTL_DISPLAY), has_display);
 		page_content += form_checkbox("has_lcd1602_27", FPSTR(INTL_LCD1602_27), has_lcd1602_27);
+		page_content += form_checkbox("has_ph_sen0161", FPSTR(INTL_PH_SEN0161), has_ph_sen0161);
 		page_content += form_checkbox("has_lcd1602", FPSTR(INTL_LCD1602_3F), has_lcd1602);
 		page_content += F("<table>");
 		page_content += form_select_lang();
@@ -1186,6 +1198,7 @@ void webserver_config() {
 		readBoolParam(has_display);
 		readBoolParam(has_lcd1602);
 		readBoolParam(has_lcd1602_27);
+		readBoolParam(has_ph_sen0161);
 		readIntParam(debug);
 		readTimeParam(sending_intervall_ms);
 		readTimeParam(time_for_wifi_config);
@@ -1229,6 +1242,7 @@ void webserver_config() {
 		page_content += line_from_value(FPSTR(INTL_DISPLAY), String(has_display));
 		page_content += line_from_value(FPSTR(INTL_LCD1602_27), String(has_lcd1602_27));
 		page_content += line_from_value(FPSTR(INTL_LCD1602_3F), String(has_lcd1602));
+		page_content += line_from_value(FPSTR(INTL_PH_SEN0161), String(has_ph_sen0161));
 		page_content += line_from_value(FPSTR(INTL_DEBUG_LEVEL), String(debug));
 		page_content += line_from_value(FPSTR(INTL_MESSINTERVALL), String(sending_intervall_ms));
 		page_content += line_from_value(tmpl(FPSTR(INTL_SENDEN_AN), "opensensemap"), String(send2sensemap));

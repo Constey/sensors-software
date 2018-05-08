@@ -1,5 +1,5 @@
 const char INTL_LANG[] = "DE";
-const char INTL_FEINSTAUBSENSOR[] PROGMEM = "Feinstaubsensor";
+const char INTL_FEINSTAUBSENSOR[] PROGMEM = "Aquariumsensor";
 const char INTL_KONFIGURATION[] PROGMEM = "Konfiguration";
 const char INTL_WLAN_DATEN[] PROGMEM = "WLAN Daten";
 const char INTL_WLAN_LISTE[] PROGMEM = "Lade WLAN Netzwerke ...";
@@ -26,6 +26,7 @@ const char INTL_AUTO_UPDATE[] PROGMEM = "Auto Update";
 const char INTL_DISPLAY[] PROGMEM = "Display";
 const char INTL_LCD1602_27[] PROGMEM = "LCD 1602 (I2C: 0x27)";
 const char INTL_LCD1602_3F[] PROGMEM = "LCD 1602 (I2C: 0x3F)";
+const char INTL_PH_SEN0161[] PROGMEM = "PH SEN0161 (I2C: 0x48)";
 const char INTL_DEBUG_LEVEL[] PROGMEM = "Debug&nbsp;Level";
 const char INTL_MESSINTERVALL[] PROGMEM = "Messintervall";
 const char INTL_DAUER_ROUTERMODUS[] PROGMEM = "Dauer&nbsp;Routermodus";
