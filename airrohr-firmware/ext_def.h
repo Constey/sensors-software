@@ -3,8 +3,8 @@
 #define CURRENT_LANG INTL_LANG
 
 // WLAN Konfig
-#define WLANSSID "Freifunk-disabled"
-#define WLANPWD ""
+#define WLANSSID "Wifi"
+#define WLANPWD "Password"
 
 // BasicAuth Konfig
 #define WWW_USERNAME "admin"
@@ -20,6 +20,7 @@
 #define SEND2LORA 0
 #define SEND2CSV 0
 #define SEND2CUSTOM 0
+#define GETFROMAIRROHRAPI 0
 
 // NTP Server
 #define NTP_SERVER "0.europe.pool.ntp.org"
@@ -43,6 +44,10 @@
 #define PORT_INFLUX 8086
 #define USER_INFLUX "luftdaten"
 #define PWD_INFLUX "info"
+
+// Definition holen von anderen Airrohr Sensorwerten per HTTP
+#define HTTP_FREMDAPI_URL "http://api.luftdaten.info/v1/sensor/12868/"
+// (#define GETFROMAIRROHRAPI 0)
 
 // DHT22, Sensor Temperatur und Luftfeuchte
 #define DHT_READ 1
@@ -127,6 +132,23 @@
 #define DS18B20_PIN D7
 #endif
 
+// Inputbutton 
+#define HAS_BUTTON 0
+#define BUTTON_INPUT_PIN D2
+
+// Output Power Relay 
+#define HAS_RELAY 0
+#define OUTPUT_RELAY_PIN D1
+
+// PH Sensor SEN0161 via ADS1115 (0x48) angeschlossen?
+#define SEN0161_READ 0
+#define SEN0161_API_PIN 15 // Unknown
+#define SEN0161_CALIBRATE_M -5.868
+#define SEN0161_CALIBRATE_B 21.212
+#if defined(ESP8266)
+#define SEN0161_PIN_SCL D4
+#define SEN0161_PIN_SDA D3
+#endif
 
 // GPS, bevorzugt Neo-6M
 #define GPS_READ 0
@@ -137,7 +159,7 @@
 #endif
 
 // Automatische Firmware-Updates über WLAN
-#define AUTO_UPDATE 1
+#define AUTO_UPDATE 0
 
 // OLED Display SSD1306 angeschlossen?
 #define HAS_DISPLAY 0

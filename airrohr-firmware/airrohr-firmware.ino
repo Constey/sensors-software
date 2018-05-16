@@ -55,6 +55,7 @@
 /* Extensions connected via I2C:                                 *
 /* HTU21D (https://www.sparkfun.com/products/13763),             *
 /* BMP180, BMP280, BME280, OLED Display with SSD1306 (128x64 px) *
+/* ADS1115                                                       *
 /*                                                               *
 /* Wiring Instruction                                            *
 /* (see labels on display or sensor board)                       *
@@ -129,8 +130,8 @@
 /*****************************************************************
 /* Variables with defaults                                       *
 /*****************************************************************/
-char wlanssid[65] = "Freifunk-disabled";
-char wlanpwd[65] = "";
+char wlanssid[65] = "Wifi";
+char wlanpwd[65] = "Password";
 char current_lang[3] = "de";
 char www_username[65] = "admin";
 char www_password[65] = "feinstaub";
@@ -151,6 +152,9 @@ bool bmp280_init_failed = 0;
 bool bme280_read = 0;
 bool bme280_init_failed = 0;
 bool ds18b20_read = 0;
+bool sen0161_read = 0;
+float sen0161_calibrate_m = 0.0;
+float sen0161_calibrate_b = 0.0;
 bool gps_read = 0;
 bool send2dusti = 1;
 bool send2madavi = 1;
@@ -158,12 +162,15 @@ bool send2sensemap = 0;
 bool send2custom = 0;
 bool send2lora = 1;
 bool send2influx = 0;
+bool getFromAirrohrApi = 0;
 bool send2csv = 0;
 bool auto_update = 0;
 bool has_display = 0;
 bool has_lcd1602 = 0;
 bool has_lcd1602_27 = 0;
-bool has_ph_sen0161 = 0;
+bool has_relay = 0;
+bool has_button = 0;
+
 int  debug = 3;
 
 long int sample_count = 0;
@@ -175,6 +182,9 @@ int httpPort_madavi = 443;
 const char* host_dusti = "api.luftdaten.info";
 const char* url_dusti = "/v1/push-sensor-data/";
 int httpPort_dusti = 443;
+
+char http_fremdapi_url[100] = "http://api.luftdaten.info/v1/sensor/12868/";
+
 
 // IMPORTANT: NO MORE CHANGES TO VARIABLE NAMES NEEDED FOR EXTERNAL APIS
 
@@ -363,7 +373,16 @@ String last_value_BME280_T = "";
 String last_value_BME280_H = "";
 String last_value_BME280_P = "";
 String last_value_DS18B20_T = "";
+String last_value_SEN0161_PH = "";
+String last_value_FREMDAPI_AIRROHR_T = "";
+String last_value_FREMDAPI_AIRROHR_H = "";
 String last_data_string = "";
+int last_value_button_pressed = 0;
+bool last_value_button_state = false;
+long button_last_changetime_milli = 0;
+int button_entprellzeit = 1000;
+String last_value_relay_status = "";
+
 
 String last_gps_lat;
 String last_gps_lng;
@@ -660,6 +679,9 @@ void copyExtDef() {
 	setDef(bmp280_read, BMP280_READ);
 	setDef(bme280_read, BME280_READ);
 	setDef(ds18b20_read, DS18B20_READ);
+  setDef(sen0161_read, SEN0161_READ);
+  setDef(sen0161_calibrate_m, SEN0161_CALIBRATE_M);
+  setDef(sen0161_calibrate_b, SEN0161_CALIBRATE_B);
 	setDef(gps_read, GPS_READ);
 	setDef(send2dusti, SEND2DUSTI);
 	setDef(send2madavi, SEND2MADAVI);
@@ -670,8 +692,9 @@ void copyExtDef() {
 	setDef(has_display, HAS_DISPLAY);
 	setDef(has_lcd1602, HAS_LCD1602);
 	setDef(has_lcd1602_27, HAS_LCD1602_27);
-	setDef(has_ph_sen0161, HAS_PH_SEN0161);
-
+  setDef(has_relay, HAS_RELAY);
+  setDef(has_button, HAS_BUTTON);
+  
 	setDef(debug, DEBUG);
 
 	strcpyDef(senseboxid, SENSEBOXID);
@@ -689,6 +712,9 @@ void copyExtDef() {
 	setDef(port_influx, PORT_INFLUX);
 	strcpyDef(user_influx, USER_INFLUX);
 	strcpyDef(pwd_influx, PWD_INFLUX);
+
+  setDef(getFromAirrohrApi, GETFROMAIRROHRAPI);
+  strcpyDef(http_fremdapi_url, HTTP_FREMDAPI_URL);
 
 #undef strcpyDef
 #undef setDef
@@ -754,7 +780,11 @@ void readConfig() {
 					setFromJSON(has_display);
 					setFromJSON(has_lcd1602);
 					setFromJSON(has_lcd1602_27);
-					setFromJSON(has_ph_sen0161);
+          setFromJSON(has_relay);
+          setFromJSON(has_button);
+					setFromJSON(sen0161_read);
+          setFromJSON(sen0161_calibrate_m);
+          setFromJSON(sen0161_calibrate_b);
 					setFromJSON(debug);
 					setFromJSON(sending_intervall_ms);
 					setFromJSON(time_for_wifi_config);
@@ -771,6 +801,8 @@ void readConfig() {
 					setFromJSON(port_influx);
 					strcpyFromJSON(user_influx);
 					strcpyFromJSON(pwd_influx);
+          setFromJSON(getFromAirrohrApi);
+          strcpyFromJSON(http_fremdapi_url);
 #undef setFromJSON
 #undef strcpyFromJSON
 				} else {
@@ -825,7 +857,11 @@ void writeConfig() {
 	copyToJSON_Bool(has_display);
 	copyToJSON_Bool(has_lcd1602);
 	copyToJSON_Bool(has_lcd1602_27);
-	copyToJSON_Bool(has_ph_sen0161);
+  copyToJSON_Bool(has_relay);
+  copyToJSON_Bool(has_button);
+	copyToJSON_Bool(sen0161_read);
+  copyToJSON_String(sen0161_calibrate_m);
+  copyToJSON_String(sen0161_calibrate_b);
 	copyToJSON_String(debug);
 	copyToJSON_String(sending_intervall_ms);
 	copyToJSON_String(time_for_wifi_config);
@@ -843,6 +879,8 @@ void writeConfig() {
 	copyToJSON_Int(port_influx);
 	copyToJSON_String(user_influx);
 	copyToJSON_String(pwd_influx);
+  copyToJSON_Bool(getFromAirrohrApi);
+  copyToJSON_String(http_fremdapi_url);
 #undef copyToJSON_Bool
 #undef copyToJSON_Int
 #undef copyToJSON_String
@@ -1126,18 +1164,22 @@ void webserver_config() {
 		page_content += form_checkbox("bmp280_read", FPSTR(INTL_BMP280), bmp280_read);
 		page_content += form_checkbox("bme280_read", FPSTR(INTL_BME280), bme280_read);
 		page_content += form_checkbox("ds18b20_read", FPSTR(INTL_DS18B20), ds18b20_read);
+    page_content += form_checkbox("sen0161_read", FPSTR(INTL_PH_SEN0161), sen0161_read);
 		page_content += form_checkbox("gps_read", FPSTR(INTL_NEO6M), gps_read);
 		page_content += F("<br/><b>"); page_content += FPSTR(INTL_WEITERE_EINSTELLUNGEN); page_content += F("</b><br/>");
 		page_content += form_checkbox("auto_update", FPSTR(INTL_AUTO_UPDATE), auto_update);
 		page_content += form_checkbox("has_display", FPSTR(INTL_DISPLAY), has_display);
 		page_content += form_checkbox("has_lcd1602_27", FPSTR(INTL_LCD1602_27), has_lcd1602_27);
-		page_content += form_checkbox("has_ph_sen0161", FPSTR(INTL_PH_SEN0161), has_ph_sen0161);
 		page_content += form_checkbox("has_lcd1602", FPSTR(INTL_LCD1602_3F), has_lcd1602);
+    page_content += form_checkbox("has_relay", FPSTR(INTL_RELAY), has_relay);
+    page_content += form_checkbox("has_button", FPSTR(INTL_BUTTON), has_button);
 		page_content += F("<table>");
 		page_content += form_select_lang();
 		page_content += form_input("debug", FPSTR(INTL_DEBUG_LEVEL), String(debug), 5);
 		page_content += form_input("sending_intervall_ms", FPSTR(INTL_MESSINTERVALL), String(sending_intervall_ms / 1000), 5);
 		page_content += form_input("time_for_wifi_config", FPSTR(INTL_DAUER_ROUTERMODUS), String(time_for_wifi_config / 1000), 5);
+    page_content += form_input("sen0161_calibrate_m", FPSTR(INTL_PH_CALIBRATE_M), String(sen0161_calibrate_m), 5);
+    page_content += form_input("sen0161_calibrate_b", FPSTR(INTL_PH_CALIBRATE_B), String(sen0161_calibrate_b), 5);
 		page_content += F("</table><br/><b>"); page_content += FPSTR(INTL_WEITERE_APIS); page_content += F("</b><br/><br/>");
 		page_content += form_checkbox("send2sensemap", tmpl(FPSTR(INTL_SENDEN_AN), F("OpenSenseMap")), send2sensemap);
 		page_content += F("<table>");
@@ -1151,8 +1193,12 @@ void webserver_config() {
 		page_content += form_input("user_custom", FPSTR(INTL_BENUTZER), user_custom, 50);
 		page_content += form_password("pwd_custom", FPSTR(INTL_PASSWORT), pwd_custom, 50);
 		page_content += F("</table><br/>");
+    page_content += F("<table>");
+    page_content += form_checkbox(F("getFromAirrohrApi"), tmpl(FPSTR(INTL_HOLEN_VON), F("AirrohrApi")), getFromAirrohrApi);
+    page_content += form_input("http_fremdapi_url", FPSTR(INTL_HTTP_FREMDAPI_URL), http_fremdapi_url, 50);
+    page_content += F("</table><br/>");
 		page_content += form_checkbox(F("send2influx"), tmpl(FPSTR(INTL_SENDEN_AN), F("InfluxDB")), send2influx);
-		page_content += F("<table>");
+    page_content += F("<table>");
 		page_content += form_input("host_influx", FPSTR(INTL_SERVER), host_influx, 50);
 		page_content += form_input("url_influx", FPSTR(INTL_PFAD), url_influx, 50);
 		page_content += form_input("port_influx", FPSTR(INTL_PORT), String(port_influx), 30);
@@ -1169,6 +1215,7 @@ void webserver_config() {
 #define readCharParam(param) if (server.hasArg(#param)){ server.arg(#param).toCharArray(param, sizeof(param)); }
 #define readBoolParam(param) if (server.hasArg(#param)){ param = server.arg(#param) == "1"; }
 #define readIntParam(param)  if (server.hasArg(#param)){ int val = server.arg(#param).toInt(); if (val != 0){ param = val; }}
+#define readFloatParam(param) if (server.hasArg(#param)){ float val = server.arg(#param).toFloat(); if (val != 0.0){ param = val; }}
 #define readTimeParam(param)  if (server.hasArg(#param)){ int val = server.arg(#param).toInt(); if (val != 0){ param = val*1000; }}
 #define readPasswdParam(param) if (server.hasArg(#param)){ i = 0; masked_pwd = ""; for (i=0;i<server.arg(#param).length();i++) masked_pwd += "*"; if (masked_pwd != server.arg(#param) || server.arg(#param) == "") { server.arg(#param).toCharArray(param, sizeof(param)); } }
 
@@ -1193,13 +1240,17 @@ void webserver_config() {
 		readBoolParam(bmp280_read);
 		readBoolParam(bme280_read);
 		readBoolParam(ds18b20_read);
+    readBoolParam(sen0161_read);
 		readBoolParam(gps_read);
 		readBoolParam(auto_update);
 		readBoolParam(has_display);
 		readBoolParam(has_lcd1602);
 		readBoolParam(has_lcd1602_27);
-		readBoolParam(has_ph_sen0161);
+    readBoolParam(has_relay);
+    readBoolParam(has_button);
 		readIntParam(debug);
+    readFloatParam(sen0161_calibrate_m);
+    readFloatParam(sen0161_calibrate_b);
 		readTimeParam(sending_intervall_ms);
 		readTimeParam(time_for_wifi_config);
 
@@ -1219,12 +1270,17 @@ void webserver_config() {
 		readCharParam(user_influx);
 		readPasswdParam(pwd_influx);
 
+    readBoolParam(getFromAirrohrApi);
+    readCharParam(http_fremdapi_url);
+
 #undef readCharParam
 #undef readBoolParam
 #undef readIntParam
+#undef readFloatParam
 
 		config_needs_write = true;
 
+    page_content += line_from_value(tmpl(FPSTR(INTL_HOLEN_VON), F("Airrohr-Api")), String(getFromAirrohrApi));
 		page_content += line_from_value(tmpl(FPSTR(INTL_SENDEN_AN), F("Luftdaten.info")), String(send2dusti));
 		page_content += line_from_value(tmpl(FPSTR(INTL_SENDEN_AN), F("Madavi")), String(send2madavi));
 		page_content += line_from_value(tmpl(FPSTR(INTL_LESE), "DHT"), String(dht_read));
@@ -1237,14 +1293,18 @@ void webserver_config() {
 		page_content += line_from_value(tmpl(FPSTR(INTL_LESE), "BMP280"), String(bmp280_read));
 		page_content += line_from_value(tmpl(FPSTR(INTL_LESE), "BME280"), String(bme280_read));
 		page_content += line_from_value(tmpl(FPSTR(INTL_LESE), "DS18B20"), String(ds18b20_read));
+    page_content += line_from_value(FPSTR(INTL_PH_SEN0161), String(sen0161_read));
 		page_content += line_from_value(tmpl(FPSTR(INTL_LESE), "GPS"), String(gps_read));
 		page_content += line_from_value(FPSTR(INTL_AUTO_UPDATE), String(auto_update));
 		page_content += line_from_value(FPSTR(INTL_DISPLAY), String(has_display));
 		page_content += line_from_value(FPSTR(INTL_LCD1602_27), String(has_lcd1602_27));
 		page_content += line_from_value(FPSTR(INTL_LCD1602_3F), String(has_lcd1602));
-		page_content += line_from_value(FPSTR(INTL_PH_SEN0161), String(has_ph_sen0161));
+    page_content += line_from_value(FPSTR(INTL_RELAY), String(has_relay));
+    page_content += line_from_value(FPSTR(INTL_BUTTON), String(has_button));
 		page_content += line_from_value(FPSTR(INTL_DEBUG_LEVEL), String(debug));
 		page_content += line_from_value(FPSTR(INTL_MESSINTERVALL), String(sending_intervall_ms));
+    page_content += line_from_value(FPSTR(INTL_PH_CALIBRATE_M), String(sen0161_calibrate_m));
+    page_content += line_from_value(FPSTR(INTL_PH_CALIBRATE_B), String(sen0161_calibrate_b));
 		page_content += line_from_value(tmpl(FPSTR(INTL_SENDEN_AN), "opensensemap"), String(send2sensemap));
 		page_content += F("<br/>senseBox-ID "); page_content += senseboxid;
 		page_content += F("<br/><br/>Eigene API: "); page_content += String(send2custom);
@@ -1253,6 +1313,8 @@ void webserver_config() {
 		page_content += line_from_value(FPSTR(INTL_PORT), String(port_custom));
 		page_content += line_from_value(FPSTR(INTL_BENUTZER), user_custom);
 		page_content += line_from_value(FPSTR(INTL_PASSWORT), pwd_custom);
+    page_content += F("<br/><br/>Airrohr API: ");  page_content += String(getFromAirrohrApi);
+    page_content += line_from_value(FPSTR(INTL_HTTP_FREMDAPI_URL), http_fremdapi_url);
 		page_content += F("<br/><br/>InfluxDB: "); page_content += String(send2influx);
 		page_content += line_from_value(FPSTR(INTL_SERVER), host_influx);
 		page_content += line_from_value(FPSTR(INTL_PFAD), url_influx);
@@ -1389,11 +1451,23 @@ void webserver_values() {
 			page_content += table_row_from_value("BME280", FPSTR(INTL_LUFTFEUCHTE), last_value_BME280_H, "%");
 			page_content += table_row_from_value("BME280", FPSTR(INTL_LUFTDRUCK),  Float2String(last_value_BME280_P.toFloat() / 100.0), "hPa");
 		}
+    if (getFromAirrohrApi) {
+      page_content += empty_row;
+      page_content += table_row_from_value("HTTP-API", FPSTR(INTL_TEMPERATUR), last_value_FREMDAPI_AIRROHR_T, "°C");
+      page_content += table_row_from_value("HTTP-API", FPSTR(INTL_LUFTFEUCHTE), last_value_FREMDAPI_AIRROHR_H, "%");
+    }
 		if (ds18b20_read) {
 			page_content += empty_row;
 			page_content += table_row_from_value("DS18B20", FPSTR(INTL_TEMPERATUR), last_value_DS18B20_T, "°C");
 		}
-
+    if (sen0161_read) {
+      page_content += empty_row;
+      page_content += table_row_from_value("SEN0161", FPSTR(INTL_PH_WERT), last_value_SEN0161_PH, " ");
+    }
+    if (has_relay) {
+      page_content += empty_row;
+      page_content += table_row_from_value("Relay", FPSTR(INTL_STATUS), last_value_relay_status, " ");
+    }
 		page_content += empty_row;
 		page_content += table_row_from_value("WiFi", FPSTR(INTL_SIGNAL),  String(signal_strength), "dBm");
 		page_content += table_row_from_value("WiFi", FPSTR(INTL_QUALITAT), String(signal_quality), "%");
@@ -1634,12 +1708,15 @@ void wifiConfig() {
 	debug_out(F("SDS_read: "), DEBUG_MIN_INFO, 0); debug_out(String(sds_read), DEBUG_MIN_INFO, 1);
 	debug_out(F("BMP_read: "), DEBUG_MIN_INFO, 0); debug_out(String(bmp_read), DEBUG_MIN_INFO, 1);
 	debug_out(F("DS18B20_read: "), DEBUG_MIN_INFO, 0); debug_out(String(ds18b20_read), DEBUG_MIN_INFO, 1);
+  debug_out(F("SEN0161_read: "), DEBUG_MIN_INFO, 0); debug_out(String(sen0161_read), DEBUG_MIN_INFO, 1);
 	debug_out(F("Dusti: "), DEBUG_MIN_INFO, 0); debug_out(String(send2dusti), DEBUG_MIN_INFO, 1);
 	debug_out(F("Madavi: "), DEBUG_MIN_INFO, 0); debug_out(String(send2madavi), DEBUG_MIN_INFO, 1);
 	debug_out(F("CSV: "), DEBUG_MIN_INFO, 0); debug_out(String(send2csv), DEBUG_MIN_INFO, 1);
 	debug_out(F("Autoupdate: "), DEBUG_MIN_INFO, 0); debug_out(String(auto_update), DEBUG_MIN_INFO, 1);
 	debug_out(F("Display: "), DEBUG_MIN_INFO, 0); debug_out(String(has_display), DEBUG_MIN_INFO, 1);
 	debug_out(F("LCD 1602: "), DEBUG_MIN_INFO, 0); debug_out(String(has_lcd1602), DEBUG_MIN_INFO, 1);
+  debug_out(F("Relay: "), DEBUG_MIN_INFO, 0); debug_out(String(has_relay), DEBUG_MIN_INFO, 1);
+  debug_out(F("Button: "), DEBUG_MIN_INFO, 0); debug_out(String(has_button), DEBUG_MIN_INFO, 1);
 	debug_out(F("Debug: "), DEBUG_MIN_INFO, 0); debug_out(String(debug), DEBUG_MIN_INFO, 1);
 	debug_out(F("------"), DEBUG_MIN_INFO, 1);
 	debug_out(F("Restart needed ..."), DEBUG_MIN_INFO, 1);
@@ -2147,6 +2224,8 @@ String sensorDS18B20() {
 		i++;
 		debug_out(F("DS18B20 trying...."), DEBUG_MIN_INFO, 0);
 		debug_out(String(i), DEBUG_MIN_INFO, 1);
+    debug_out("DS18B20 Temp:" + String(t), DEBUG_MIN_INFO, 1);
+    delay(100);
 	} while(i < 5 && (isnan(t) || t == 85.0 || t == (-127.0)));
 
 	if(i == 5) {
@@ -2162,6 +2241,50 @@ String sensorDS18B20() {
 	debug_out(F("End reading DS18B20"), DEBUG_MED_INFO, 1);
 
 	return s;
+}
+
+
+/*****************************************************************
+/* read SEN0161 sensor values                                    *
+/*****************************************************************/
+String sensorSEN0161() {
+  String s = "";
+  int16_t adc0;  // we read from the ADC, we have a sixteen bit integer as a result
+  float temp = 0.0;
+  float ADCVoltageA0Average;
+  float ADCPHAverage;
+  float ADCVoltageA0 = 0.0; 
+  //float ADCVoltageA0_PHJustageM = sen0161_calibrate_m; // -5.868;
+  //float ADCVoltageA0_PHJustageB = sen0161_calibrate_b; // 21.212;  
+
+  debug_out(F("Start reading SEN0161"), DEBUG_MED_INFO, 1);
+
+  for(int i=0;i<5;i++) // Read Sensor 5 Times to get a more accurate value
+  {
+    last_value_SEN0161_PH = "";
+    adc0 = ads.readADC_SingleEnded(0);
+    ADCVoltageA0 = (adc0 * 0.1875)/1000; 
+    temp = temp + ADCVoltageA0;
+   // debug_out("SEN0161 trying.... (" + String(i) + ") " + "Voltage:" + String(ADCVoltageA0), DEBUG_MIN_INFO, 1);
+    delay(100);
+  }
+
+  // Calculate Voltage Average
+  ADCVoltageA0Average = temp / 5.0;
+  debug_out("SEN0161_VoltageA0Average:" + String(ADCVoltageA0Average), DEBUG_MIN_INFO, 1);
+
+  // Calculate PH Average (y = m * x +b)
+  ADCPHAverage = sen0161_calibrate_m * ADCVoltageA0Average + sen0161_calibrate_b;
+  debug_out("SEN0161_ADCPHAverage:" + String(ADCPHAverage) + " ( y=" + String(sen0161_calibrate_m) + " * " + String(ADCVoltageA0Average) + " + " + String(sen0161_calibrate_b) + " )", DEBUG_MIN_INFO, 1);
+
+  last_value_SEN0161_PH = Float2String(ADCPHAverage);
+  s += Value2Json(F("SEN0161_PHValue"), last_value_SEN0161_PH);
+  last_value_SEN0161_PH.remove(last_value_SEN0161_PH.length() - 1);
+
+  debug_out(F("------"), DEBUG_MIN_INFO, 1);
+  debug_out(F("End reading SEN0161"), DEBUG_MED_INFO, 1);
+
+  return s;
 }
 
 /*****************************************************************
@@ -2603,7 +2726,7 @@ void autoUpdate() {
 /*****************************************************************
 /* display values                                                *
 /*****************************************************************/
-void display_values(const String& value_DHT_T, const String& value_DHT_H, const String& value_BMP_T, const String& value_BMP_P, const String& value_BMP280_T, const String& value_BMP280_P, const String& value_BME280_T, const String& value_BME280_H, const String& value_BME280_P, const String& value_PPD_P1, const String& value_PPD_P2, const String& value_SDS_P1, const String& value_SDS_P2) {
+void display_values(const String& value_DHT_T, const String& value_DHT_H, const String& value_BMP_T, const String& value_BMP_P, const String& value_BMP280_T, const String& value_BMP280_P, const String& value_BME280_T, const String& value_BME280_H, const String& value_BME280_P, const String& value_PPD_P1, const String& value_PPD_P2, const String& value_SDS_P1, const String& value_SDS_P2 ) {
 #if defined(ESP8266)
 	int value_count = 0;
 	String t_value = "";
@@ -2616,6 +2739,8 @@ void display_values(const String& value_DHT_T, const String& value_DHT_H, const 
 	String pm25_value = "";
 	String pm10_sensor = "";
 	String pm25_sensor = "";
+  String ds18b20_value = "";
+  String sen0161_value = "";
 	debug_out(F("output values to display..."), DEBUG_MIN_INFO, 1);
 	if (dht_read) {
 		t_value = last_value_DHT_T; t_sensor = "DHT22";
@@ -2634,6 +2759,8 @@ void display_values(const String& value_DHT_T, const String& value_DHT_H, const 
 		h_value = last_value_BME280_H; h_sensor = "BME280";
 		p_value = last_value_BME280_P; p_sensor = "BME280";
 	}
+  if (ds18b20_read) {  ds18b20_value = last_value_DS18B20_T;   } else {ds18b20_value = "-"; }
+  if (sen0161_read) {  sen0161_value = last_value_SEN0161_PH;   } else {sen0161_value = "-"; }
 	if (ppd_read) {
 		pm10_value = last_value_PPD_P1; pm10_sensor = "PPD42NS";
 		pm25_value = last_value_PPD_P2; pm25_sensor = "PPD42NS";
@@ -2660,6 +2787,12 @@ void display_values(const String& value_DHT_T, const String& value_DHT_H, const 
 		display.setTextAlignment(TEXT_ALIGN_LEFT);
 		value_count = 0;
 		display.drawString(0, 10 * (value_count++), "Temp:" + t_value + "  Hum.:" + h_value);
+    if (sen0161_read) {
+      display.drawString(0, 30 * (value_count++), "PH Wert: " + sen0161_value);
+    }
+    if (ds18b20_read) {
+      display.drawString(0, 35 * (value_count++), "Wasser: " + ds18b20_value);
+    }
 		if (ppd_read) {
 			display.drawString(0, 10 * (value_count++), "PPD P1: " + value_PPD_P1);
 			display.drawString(0, 10 * (value_count++), "PPD P2: " + value_PPD_P2);
@@ -2701,6 +2834,162 @@ void display_values(const String& value_DHT_T, const String& value_DHT_H, const 
 #endif
 }
 
+
+/*****************************************************************
+/* display values                                                *
+/*****************************************************************/
+void display_valuesNew(const String& value_DHT_T, const String& value_DHT_H, const String& value_BMP_T, const String& value_BMP_P, const String& value_BMP280_T, const String& value_BMP280_P, const String& value_BME280_T, const String& value_BME280_H, const String& value_BME280_P, const String& value_PPD_P1, const String& value_PPD_P2, const String& value_SDS_P1, const String& value_SDS_P2 ) {
+#if defined(ESP8266)
+  int value_count = 0;
+  String t_value = "";
+  String h_value = "";
+  String p_value = "";
+  String t_sensor = "";
+  String h_sensor = "";
+  String p_sensor = "";
+  String pm10_value = "";
+  String pm25_value = "";
+  String pm10_sensor = "";
+  String pm25_sensor = "";
+  String ds18b20_value = "";
+  String sen0161_value = "";
+  float http_fremdapi_t = 0.0;
+  float http_fremdapi_h = 0.0;
+  debug_out(F("output values to display..."), DEBUG_MIN_INFO, 1);
+  if (dht_read) {
+    t_value = last_value_DHT_T; t_sensor = "DHT22";
+    h_value = last_value_DHT_H; h_sensor = "DHT22";
+  }
+  if (bmp_read) {
+    t_value = last_value_BMP_T; t_sensor = "BMP180";
+    p_value = last_value_BMP_P; p_sensor = "BMP180";
+  }
+  if (bmp280_read) {
+    t_value = last_value_BMP280_T; t_sensor = "BMP280";
+    p_value = last_value_BMP280_P; p_sensor = "BMP280";
+  }
+  if (bme280_read) {
+    t_value = last_value_BME280_T; t_sensor = "BME280";
+    h_value = last_value_BME280_H; h_sensor = "BME280";
+    p_value = last_value_BME280_P; p_sensor = "BME280";
+  }
+  if (getFromAirrohrApi) {
+    http_fremdapi_t = last_value_FREMDAPI_AIRROHR_T.toFloat();
+    http_fremdapi_h = last_value_FREMDAPI_AIRROHR_H.toFloat();
+  }
+  if (ds18b20_read) {  ds18b20_value = last_value_DS18B20_T;   } else {ds18b20_value = "-"; }
+  if (sen0161_read) {  sen0161_value = last_value_SEN0161_PH;   } else {sen0161_value = "-"; }
+  if (ppd_read) {
+    pm10_value = last_value_PPD_P1; pm10_sensor = "PPD42NS";
+    pm25_value = last_value_PPD_P2; pm25_sensor = "PPD42NS";
+  }
+  if (pms24_read || pms32_read) {
+    pm10_value = last_value_PMS_P1; pm10_sensor = "PMSx003";
+    pm25_value = last_value_PMS_P2; pm25_sensor = "PMSx003";
+  }
+  if (sds_read) {
+    pm10_value = last_value_SDS_P1; pm10_sensor = "SDS011";
+    pm25_value = last_value_SDS_P2; pm25_sensor = "SDS011";
+  }
+  if (pm10_value == "") { pm10_value = "-";}
+  if (pm25_value == "") { pm25_value = "-";}
+  if (t_value == "") { t_value = "-";}
+  if (h_value == "") { h_value = "-";}
+  if (p_value == "") { p_value = "-";}
+
+  if (has_display) {
+    display.resetDisplay();
+    display.clear();
+    display.displayOn();
+    display.setFont(Dialog_plain_14);
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    value_count = 0;
+
+    if (ds18b20_read) {
+      display.drawString(2, 1 , ds18b20_value + " C°" ); // Wasser
+    }
+    if (sen0161_read) {
+      display.drawString(70, 1 , "PH: " + sen0161_value);
+    }
+    display.setFont(Dialog_plain_13);
+    display.drawString(0, 19, "I:" + t_value + " C°" );
+    display.drawString(70, 19, "F:" + h_value + " % " );
+
+    // HTTP Api Sensor
+    display.drawString(0, 36, "A:" + String(http_fremdapi_t,1) + " C°" );
+    display.drawString(70, 36, "A:" + String(http_fremdapi_h,1) + " % " );
+    //display.setFont(ArialMT_Plain_10);
+    //display.drawString(0, 36, "Temp:" + t_value + "  Hum.:" + h_value);
+    display.setFont(Dialog_plain_14);
+
+    if (ppd_read) {
+      display.drawString(0, 11 * (value_count++), "PPD P1: " + value_PPD_P1);
+      display.drawString(0, 11 * (value_count++), "PPD P2: " + value_PPD_P2);
+    }
+    if (sds_read) {
+      display.drawString(0, 11 * (value_count++), "SDS P1: " + value_SDS_P1);
+      display.drawString(0, 11 * (value_count++), "SDS P2: " + value_SDS_P2);
+    }
+    if (gps_read) {
+      if(gps.location.isValid()) {
+        display.drawString(0, 11 * (value_count++), "lat: " + String(gps.location.lat(), 6));
+        display.drawString(0, 11 * (value_count++), "long: " + String(gps.location.lng(), 6));
+      }
+      display.drawString(0, 11 * (value_count++), "satellites: " + String(gps.satellites.value()));
+    }
+
+// Obere Leiste (Erste Tabellenzeile)
+display.drawHorizontalLine(0, 17, 128);
+// Obere Leiste (Zweite)
+display.drawHorizontalLine(0, 34, 128);
+// Dritte Leiste (Dritte)
+//display.drawHorizontalLine(0, 51, 128);
+// verticaler trenner
+
+//display.drawVerticalLine(64, 0, 17);
+display.drawVerticalLine(64, 0, 51);
+
+//////// Untere Leiste für Zeit und Temperatur
+
+  display.setFont(ArialMT_Plain_10);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawString(0, 54, "Time");
+  display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  String temp = String(last_value_BME280_T) + "°C";
+  display.drawString(128, 54, temp);
+  display.drawHorizontalLine(0, 52, 128);
+
+///////////////////////////
+
+    
+    display.display();
+  }
+  
+// ----5----0----5----0
+// PM10/2.5: 1999/999
+// T/H: -10.0°C/100.0%
+// T/P: -10.0°C/1000hPa
+
+  if (has_lcd1602_27) {
+    lcd_27.clear();
+    lcd_27.setCursor(0, 0);
+    lcd_27.print("PM: " + (value_SDS_P1 != "" ? value_SDS_P1 : "-") + " " + (value_SDS_P2 != "" ? value_SDS_P2 : "-"));
+    lcd_27.setCursor(0, 1);
+    lcd_27.print("T/H:" + t_value + char(223) + "C " + h_value + "%");
+  }
+  if (has_lcd1602) {
+    lcd_3f.clear();
+    lcd_3f.setCursor(0, 0);
+    lcd_3f.print("PM: " + (value_SDS_P1 != "" ? value_SDS_P1 : "-") + " " + (value_SDS_P2 != "" ? value_SDS_P2 : "-"));
+    lcd_3f.setCursor(0, 1);
+    lcd_3f.print("T/H:" + t_value + char(223) + "C " + h_value + "%");
+  }
+  yield();
+#endif
+}
+
+
+
 /*****************************************************************
 /* Init display                                                  *
 /*****************************************************************/
@@ -2722,6 +3011,7 @@ void init_lcd1602() {
 	lcd_3f.backlight();
 #endif
 }
+
 
 /*****************************************************************
 /* Init BMP280                                                   *
@@ -2789,6 +3079,9 @@ void setup() {
 	ds18b20.begin();
 	pinMode(PPD_PIN_PM1, INPUT_PULLUP);	// Listen at the designated PIN
 	pinMode(PPD_PIN_PM2, INPUT_PULLUP);	// Listen at the designated PIN
+  if (has_button) {  pinMode(BUTTON_INPUT_PIN, INPUT_PULLUP); } // declare push button as input // InputButton 
+  if (has_relay) {   pinMode(OUTPUT_RELAY_PIN, OUTPUT); } // Output Relay
+
 	dht.begin();	// Start DHT
 	htu21d.begin(); // Start HTU21D
 	delay(10);
@@ -2820,6 +3113,7 @@ void setup() {
 	if (bmp280_read) { debug_out(F("Lese BMP280..."), DEBUG_MIN_INFO, 1); }
 	if (bme280_read) { debug_out(F("Lese BME280..."), DEBUG_MIN_INFO, 1); }
 	if (ds18b20_read) { debug_out(F("Lese DS18B20..."), DEBUG_MIN_INFO, 1); }
+  if (sen0161_read) { debug_out(F("Lese SEN0161..."), DEBUG_MIN_INFO, 1); }
 	if (gps_read) { debug_out(F("Lese GPS..."), DEBUG_MIN_INFO, 1); }
 	if (send2dusti) { debug_out(F("Sende an luftdaten.info..."), DEBUG_MIN_INFO, 1); }
 	if (send2madavi) { debug_out(F("Sende an madavi.de..."), DEBUG_MIN_INFO, 1); }
@@ -2827,9 +3121,12 @@ void setup() {
 	if (send2csv) { debug_out(F("Sende als CSV an Serial..."), DEBUG_MIN_INFO, 1); }
 	if (send2custom) { debug_out(F("Sende an custom API..."), DEBUG_MIN_INFO, 1); }
 	if (send2influx) { debug_out(F("Sende an custom influx DB..."), DEBUG_MIN_INFO, 1); }
+  if (getFromAirrohrApi) { debug_out(F("Hole von custom airrohr api..."), DEBUG_MIN_INFO, 1); }
 	if (auto_update) { debug_out(F("Auto-Update wird ausgeführt..."), DEBUG_MIN_INFO, 1); }
 	if (has_display) { debug_out(F("Zeige auf Display..."), DEBUG_MIN_INFO, 1); }
 	if (has_lcd1602) { debug_out(F("Zeige auf LCD 1602..."), DEBUG_MIN_INFO, 1); }
+  if (has_relay) { debug_out(F("Schalte Relay..."), DEBUG_MIN_INFO, 1); }
+  if (has_button) { debug_out(F("Lese Button..."), DEBUG_MIN_INFO, 1); }
 	if (bmp_read) {
 		if (!bmp.begin()) {
 			debug_out(F("No valid BMP085 sensor, check wiring!"), DEBUG_MIN_INFO, 1);
@@ -2852,6 +3149,8 @@ void setup() {
 		debug_out(F("Stoppe PMS..."), DEBUG_MIN_INFO, 1);
 		stop_PMS();
 	}
+
+  
 #if defined(ARDUINO_SAMD_ZERO)
 	data_first_part.replace("FEATHERCHIPID", ", \"chipid\": \"" + FeatherChipId() + "\"");
 #else
@@ -2892,6 +3191,7 @@ void loop() {
 	String result_BMP280 = "";
 	String result_BME280 = "";
 	String result_DS18B20 = "";
+  String result_SEN0161 = "";
 	String result_GPS = "";
 	String signal_strength = "";
 
@@ -2975,6 +3275,11 @@ void loop() {
 			debug_out(F("Call sensorDS18B20"), DEBUG_MAX_INFO, 1);
 			result_DS18B20 = sensorDS18B20();     // getting temperature (optional)
 		}
+   
+    if (sen0161_read) {
+      debug_out(F("Call sensorSEN0161"), DEBUG_MAX_INFO, 1);
+      result_SEN0161 = sensorSEN0161();     // getting temperature (optional)
+    }
 	}
 
 	if (gps_read && (((act_milli - starttime_GPS) > sampletime_GPS_ms) || ((act_milli - starttime) > sending_intervall_ms))) {
@@ -2982,6 +3287,24 @@ void loop() {
 		result_GPS = sensorGPS();			// getting GPS coordinates
 		starttime_GPS = act_milli;
 	}
+  // Check Button outside of Airrohr-Cycle-Time
+  if (has_button) {
+    last_value_button_pressed = digitalRead(BUTTON_INPUT_PIN);
+    //debug_out("Button value:" + String(last_value_button_pressed), DEBUG_MIN_INFO, 1);
+    if (last_value_button_pressed == LOW) {
+       // Button pressed
+       
+        if ((act_milli - button_last_changetime_milli) > button_entprellzeit) {
+        // Button wurde innerhalb von button_entprellzeit nur einmal gedruckt
+        debug_out("Button innerhalb von entprellzeit nur einmal pressed", DEBUG_MIN_INFO, 1);
+        if (last_value_button_state == false) { last_value_button_state = true; } else { last_value_button_state = false; }
+        button_last_changetime_milli = millis();
+      }
+      //debug_out("Button pressed", DEBUG_MIN_INFO, 1);
+    } else {
+      //debug_out("Button is not pressed", DEBUG_MIN_INFO, 1);
+    }
+  }
 
 	if (send_now) {
 		if (WiFi.psk() != "") {
@@ -3086,6 +3409,16 @@ void loop() {
 			}
 		}
 
+    if (sen0161_read) {
+      data += result_SEN0161;
+      if (send2dusti) {
+        debug_out(F("## Sending to luftdaten.info (SEN0161): "), DEBUG_MIN_INFO, 1);
+        start_send = micros();
+        sendLuftdaten(result_SEN0161, SEN0161_API_PIN, host_dusti, httpPort_dusti, url_dusti, "SEN0161_");
+        sum_send_time += micros() - start_send;
+      }
+    }
+
 		if (gps_read) {
 			data += result_GPS;
 			if (send2dusti) {
@@ -3111,7 +3444,9 @@ void loop() {
 		}
 
 		if (has_display || has_lcd1602 || has_lcd1602_27) {
-			display_values(last_value_DHT_T, last_value_DHT_H, last_value_BMP_T, last_value_BMP_P, last_value_BMP280_T, last_value_BMP280_P, last_value_BME280_T, last_value_BME280_H, last_value_BME280_P, last_value_PPD_P1, last_value_PPD_P2, last_value_SDS_P1, last_value_SDS_P2);
+			//display_values(last_value_DHT_T, last_value_DHT_H, last_value_BMP_T, last_value_BMP_P, last_value_BMP280_T, last_value_BMP280_P, last_value_BME280_T, last_value_BME280_H, last_value_BME280_P, last_value_PPD_P1, last_value_PPD_P2, last_value_SDS_P1, last_value_SDS_P2);
+      display_valuesNew(last_value_DHT_T, last_value_DHT_H, last_value_BMP_T, last_value_BMP_P, last_value_BMP280_T, last_value_BMP280_P, last_value_BME280_T, last_value_BME280_H, last_value_BME280_P, last_value_PPD_P1, last_value_PPD_P2, last_value_SDS_P1, last_value_SDS_P2);
+
 		}
 
 		if (send2madavi) {
@@ -3137,6 +3472,73 @@ void loop() {
 			sendData(data_4_influxdb, 0, host_influx, port_influx, url_influx, basic_auth_influx.c_str(), FPSTR(TXT_CONTENT_TYPE_INFLUXDB));
 			sum_send_time += micros() - start_send;
 		}
+
+    if (has_relay) {
+      last_value_relay_status = String(digitalRead(OUTPUT_RELAY_PIN));
+      debug_out("Relaystatus:" + last_value_relay_status, DEBUG_MIN_INFO, 1);
+       if (last_value_button_state == true) {
+          if( !last_value_relay_status.toInt() ) { // LOW (Just switch to HIGH, when Output is LOW)
+            // Button was pressed / Poweron
+            digitalWrite(OUTPUT_RELAY_PIN, HIGH);
+            debug_out("Switching relay on", DEBUG_MIN_INFO, 1);
+          }
+       } else {
+          if( last_value_relay_status.toInt() ) { // HIGH (Just switch to LOW, when Output is HIGH)
+            // Button not pressed / Poweroff
+            digitalWrite(OUTPUT_RELAY_PIN, LOW);
+            debug_out("Switching relay off", DEBUG_MIN_INFO, 1);
+          }
+       }
+    }
+   
+    if (getFromAirrohrApi) {
+      debug_out(F("## Getting data from custom airrohr api: "), DEBUG_MIN_INFO, 1);
+      start_send = micros();
+      if (WiFi.status() == WL_CONNECTED) { //Check WiFi connection status
+       
+          HTTPClient http;  //Declare an object of class HTTPClient
+       
+          http.begin(http_fremdapi_url);  //Specify request destination
+          int httpCode = http.GET();      //Send the request
+          last_value_FREMDAPI_AIRROHR_T = "";
+          last_value_FREMDAPI_AIRROHR_H = "";
+          float tempValueT = 0.0;
+          float tempValueH = 0.0;
+          if (httpCode > 0) { //Check the returning code
+       
+            String payload = http.getString();   //Get the request response payload
+            debug_out(F("## Getting from AirrohrApi: "), DEBUG_MIN_INFO, 0);
+            debug_out(String(payload), DEBUG_MIN_INFO, 1);
+            //Serial.println(payload);                     //Print the response payload
+           if (payload.length() > 0) {
+              DynamicJsonBuffer  jsonBuffer(payload.length());
+              JsonArray& root = jsonBuffer.parseArray(payload);
+              // Test if parsing succeeds.
+              if (!root.success()) {
+                debug_out(F("## Fremdapi parseArray() failed"), DEBUG_MIN_INFO, 0);
+                //Serial.println("Fremdapi parseArray() failed");
+              } else {
+                // [{"sensordatavalues":[{"value_type":"temperature","value":"21.05","id":2618426597},{"value_type":"humidity","value":"82.71","id":2618426598},{"value_type":"pressure","value":"99498.80","id":2618426599},{"value_type":"pressure_at_sealevel","value":100908.08}],"location":{"country":"DE","latitude":"49.9780","id":6502,"altitude":"121.3","longitude":"8.2940"},"sampling_rate":null,"timestamp":"2018-05-14 16:50:39","id":1219124076,"sensor":{"sensor_type":{"manufacturer":"Bosch","name":"BME280","id":17},"pin":"11","id":12868}},{"sensordatavalues":[{"value_type":"temperature","value":"21.04","id":2618447394},{"value_type":"humidity","value":"82.55","id":2618447395},{"value_type":"pressure","value":"99499.32","id":2618447396},{"value_type":"pressure_at_sealevel","value":100908.66}],"location":{"country":"DE","latitude":"49.9780","id":6502,"altitude":"121.3","longitude":"8.2940"},"sampling_rate":null,"timestamp":"2018-05-14 16:53:10","id":1219133899,"sensor":{"sensor_type":{"manufacturer":"Bosch","name":"BME280","id":17},"pin":"11","id":12868}}]Root1
+                //Serial.println("Root0");
+                //root.printTo(Serial); 
+                //Serial.println("Root1");
+                //root[0]["sensordatavalues"].printTo(Serial);
+                // {"value_type":"temperature","value":"21.05","id":2618426597}
+               // Serial.println("Root2");
+               // root[0]["sensordatavalues"][0].printTo(Serial); 
+                //"21.05"
+                //root[0]["sensordatavalues"][0]["value"].printTo(Serial);
+                tempValueT = root[0]["sensordatavalues"][0]["value"];
+                tempValueH = root[0]["sensordatavalues"][1]["value"];
+                last_value_FREMDAPI_AIRROHR_T = String(tempValueT);
+                last_value_FREMDAPI_AIRROHR_H = String(tempValueH);
+              }     
+           }
+          }
+      http.end();   //Close connection
+      }
+    sum_send_time += micros() - start_send;
+    }
 
 		if (send2lora) {
 			debug_out(F("## Sending to LoRa gateway: "), DEBUG_MIN_INFO, 1);
